@@ -8,7 +8,18 @@ import net.minecraft.client.render.RenderLayer;
 import net.minecraft.util.math.RotationAxis;
 
 import java.awt.*;
+import java.lang.reflect.Method;
 public class DrawUtils {
+    private static boolean fillGradientChecked;
+    private static Method fillGradient6;
+    private static Method fillGradient7;
+    private static boolean fillChecked;
+    private static Method fill5;
+    private static Method fill7;
+    private static boolean guiLayerChecked;
+    private static Method getGuiLayer;
+    private static boolean guiOverlayChecked;
+    private static Method getGuiOverlayLayer;
 
     public static int interpolateColorHSV(int colorStart, int colorEnd, int t) {
         float ratio = Math.max(0f, Math.min(1f, t / 100f));
@@ -47,14 +58,12 @@ public class DrawUtils {
             int rgb = Color.HSBtoRGB(hue, 1f, 1f) | 0xFF000000;
             if (k < itemBarStep) {
 
-                context.fillGradient(
-
+                fillGradientCompat(
+                        context,
                         0,
                         -(k + 1),
-
                         1,
                         -k,
-                        //? if <1.21.6
                         0,
                         rgb,
                         past_color
@@ -72,14 +81,12 @@ public class DrawUtils {
             float hue = (float) k / 13f;
             int rgb = Color.HSBtoRGB(hue, 1f, 1f) | 0xFF000000;
             if (k < itemBarStep) {
-                context.fillGradient(
-
+                fillGradientCompat(
+                        context,
                         0,
                         13 - (k + 1),
-
                         1,
                         13 - k,
-                        //? if <1.21.6
                         0,
                         rgb,
                         past_color
@@ -139,27 +146,20 @@ public class DrawUtils {
     }
 
     public static void pushMatrix(DrawContext context) {
-        //? if >1.21.5 {
-        /*context.getMatrices().pushMatrix();
-         *///?} else {
-        context.getMatrices().push();
-        //?}
+        invokeMatrixNoArgs(context, "pushMatrix", "push");
     }
 
     public static void popMatrix(DrawContext context) {
-        //? if >1.21.5 {
-        /*context.getMatrices().popMatrix();
-         *///?} else {
-        context.getMatrices().pop();
-         //?}
+        invokeMatrixNoArgs(context, "popMatrix", "pop");
     }
 
     public static void rotateMatrix(DrawContext context, float deg) {
-        //? if >1.21.5 {
-        /*context.getMatrices().rotate((float) Math.toRadians(deg));
-         *///?} else {
-        context.getMatrices().multiply(RotationAxis.POSITIVE_Z.rotationDegrees(deg));
-        //?}
+        Object matrices = context.getMatrices();
+        float radians = (float) Math.toRadians(deg);
+        if (invokeMatrixFloat(matrices, "rotate", radians)) {
+            return;
+        }
+        invokeMatrixObject(matrices, "multiply", RotationAxis.POSITIVE_Z.rotationDegrees(deg));
     }
 
     public static void translateMatrix(DrawContext context, int x, int y) {
@@ -167,11 +167,20 @@ public class DrawUtils {
     }
 
     public static void translateMatrix(DrawContext context, float x, float y) {
-        //? if >1.21.5 {
-        /*context.getMatrices().translate(x, y);
-         *///?} else {
-        context.getMatrices().translate(x, y, 200.0F);
-        //?}
+        Object matrices = context.getMatrices();
+        if (invokeMatrixFloatFloat(matrices, "translate", x, y)) {
+            return;
+        }
+        if (invokeMatrixDoubleDouble(matrices, "translate", x, y)) {
+            return;
+        }
+        if (invokeMatrixFloatFloatFloat(matrices, "translate", x, y, 200.0F)) {
+            return;
+        }
+        if (invokeMatrixDoubleDoubleDouble(matrices, "translate", x, y, 200.0F)) {
+            return;
+        }
+        throw new RuntimeException("No compatible translate method found on matrix stack");
     }
 
     public static void scaleMatrix(DrawContext context, int x, int y) {
@@ -179,19 +188,202 @@ public class DrawUtils {
     }
 
     public static void scaleMatrix(DrawContext context, float x, float y) {
-        //? if >1.21.5 {
-        /*context.getMatrices().scale(x, y);
-         *///?} else {
-        context.getMatrices().scale(x, y, 1.0F);
-        //?}
+        Object matrices = context.getMatrices();
+        if (invokeMatrixFloatFloat(matrices, "scale", x, y)) {
+            return;
+        }
+        if (invokeMatrixDoubleDouble(matrices, "scale", x, y)) {
+            return;
+        }
+        if (invokeMatrixFloatFloatFloat(matrices, "scale", x, y, 1.0F)) {
+            return;
+        }
+        if (invokeMatrixDoubleDoubleDouble(matrices, "scale", x, y, 1.0F)) {
+            return;
+        }
+        throw new RuntimeException("No compatible scale method found on matrix stack");
     }
 
     public static void fill(DrawContext context, int x, int y, int width, int height, int color) {
-        //? if >1.21.5 {
-        /*context.fill(x, y, x+width, y+height, color);
-         *///?} else {
-        context.fill(RenderLayer.getGui(), x, y, x + width, y + height, 200, color);
-        //?}
+        fillCompat(context, x, y, x + width, y + height, 200, color, getGuiLayer());
+    }
 
+    public static void fillOverlay(DrawContext context, int x, int y, int width, int height, int color) {
+        fillCompat(context, x, y, x + width, y + height, Integer.MAX_VALUE, color, getGuiOverlayLayer());
+    }
+
+    private static void fillGradientCompat(DrawContext context, int x1, int y1, int x2, int y2, int z, int colorStart, int colorEnd) {
+        if (!fillGradientChecked) {
+            fillGradientChecked = true;
+            try {
+                fillGradient6 = DrawContext.class.getMethod("fillGradient", int.class, int.class, int.class, int.class, int.class, int.class);
+            } catch (NoSuchMethodException ignored) {
+            }
+            try {
+                fillGradient7 = DrawContext.class.getMethod("fillGradient", int.class, int.class, int.class, int.class, int.class, int.class, int.class);
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+
+        try {
+            if (fillGradient6 != null) {
+                fillGradient6.invoke(context, x1, y1, x2, y2, colorStart, colorEnd);
+                return;
+            }
+            if (fillGradient7 != null) {
+                fillGradient7.invoke(context, x1, y1, x2, y2, z, colorStart, colorEnd);
+                return;
+            }
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+
+        throw new RuntimeException("No compatible fillGradient method found on DrawContext");
+    }
+
+    private static void fillCompat(DrawContext context, int x1, int y1, int x2, int y2, int z, int color, RenderLayer layer) {
+        if (!fillChecked) {
+            fillChecked = true;
+            try {
+                fill5 = DrawContext.class.getMethod("fill", int.class, int.class, int.class, int.class, int.class);
+            } catch (NoSuchMethodException ignored) {
+            }
+            try {
+                fill7 = DrawContext.class.getMethod("fill", RenderLayer.class, int.class, int.class, int.class, int.class, int.class, int.class);
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+
+        try {
+            if (fill5 != null) {
+                fill5.invoke(context, x1, y1, x2, y2, color);
+                return;
+            }
+            if (fill7 != null) {
+                fill7.invoke(context, layer, x1, y1, x2, y2, z, color);
+                return;
+            }
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+
+        throw new RuntimeException("No compatible fill method found on DrawContext");
+    }
+
+    private static RenderLayer getGuiLayer() {
+        if (!guiLayerChecked) {
+            guiLayerChecked = true;
+            try {
+                getGuiLayer = RenderLayer.class.getMethod("getGui");
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+        if (getGuiLayer == null) {
+            throw new RuntimeException("RenderLayer.getGui is not available");
+        }
+        try {
+            return (RenderLayer) getGuiLayer.invoke(null);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static RenderLayer getGuiOverlayLayer() {
+        if (!guiOverlayChecked) {
+            guiOverlayChecked = true;
+            try {
+                getGuiOverlayLayer = RenderLayer.class.getMethod("getGuiOverlay");
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+        if (getGuiOverlayLayer == null) {
+            throw new RuntimeException("RenderLayer.getGuiOverlay is not available");
+        }
+        try {
+            return (RenderLayer) getGuiOverlayLayer.invoke(null);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void invokeMatrixNoArgs(DrawContext context, String primary, String fallback) {
+        Object matrices = context.getMatrices();
+        if (invokeMatrixNoArgs(matrices, primary)) {
+            return;
+        }
+        if (invokeMatrixNoArgs(matrices, fallback)) {
+            return;
+        }
+        throw new RuntimeException("No compatible matrix method found: " + primary + "/" + fallback);
+    }
+
+    private static boolean invokeMatrixNoArgs(Object matrices, String name) {
+        try {
+            Method method = matrices.getClass().getMethod(name);
+            method.invoke(matrices);
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean invokeMatrixFloat(Object matrices, String name, float value) {
+        try {
+            Method method = matrices.getClass().getMethod(name, float.class);
+            method.invoke(matrices, value);
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean invokeMatrixObject(Object matrices, String name, Object value) {
+        try {
+            Method method = matrices.getClass().getMethod(name, value.getClass());
+            method.invoke(matrices, value);
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean invokeMatrixFloatFloat(Object matrices, String name, float x, float y) {
+        try {
+            Method method = matrices.getClass().getMethod(name, float.class, float.class);
+            method.invoke(matrices, x, y);
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean invokeMatrixDoubleDouble(Object matrices, String name, float x, float y) {
+        try {
+            Method method = matrices.getClass().getMethod(name, double.class, double.class);
+            method.invoke(matrices, (double) x, (double) y);
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean invokeMatrixFloatFloatFloat(Object matrices, String name, float x, float y, float z) {
+        try {
+            Method method = matrices.getClass().getMethod(name, float.class, float.class, float.class);
+            method.invoke(matrices, x, y, z);
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean invokeMatrixDoubleDoubleDouble(Object matrices, String name, float x, float y, float z) {
+        try {
+            Method method = matrices.getClass().getMethod(name, double.class, double.class, double.class);
+            method.invoke(matrices, (double) x, (double) y, (double) z);
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
     }
 }
